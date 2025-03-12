@@ -9,8 +9,12 @@ from pygame.locals import *
 from tkinter import filedialog
 from tkinter import *
 
-import scripts.pygpen as pygpen
-from scripts.pygpen.utils.io import read_json, write_json
+try:
+    import scripts.pygpen as pygpen
+    from scripts.pygpen.utils.io import read_json, write_json
+except ImportError:
+    import scripts.pygpen as pygpen
+    from scripts.pygpen.utils.io import read_json, write_json
 
 KEY_MAPPINGS = {
 	'quit': ['button', 27],
@@ -86,26 +90,14 @@ class Draggable(pygpen.Element):
         width = 2 if self.dragging else 1
         self.e['Renderer'].renderf(pygame.draw.circle, color, (self.snap_pos[0] - offset[0], self.snap_pos[1] - offset[1]), radius, width, z=999996)
 
-class Player(pygpen.PhysicsEntity):
-    def setup(self):
-        self.acceleration[1] = 800
-        self.velocity_caps[1] = 500
-        self.autoflip = -1
-    
-    def custom_update(self):
-        if not self.velocity[0] and not self.next_movement[0]:
-            self.set_action('idle')
-        else:
-            self.set_action('run')
-
 class Game(pygpen.PygpenGame):
     def load(self):
         self.font_path = 'editor_assets/fonts' if os.path.exists('editor_assets/fonts') else None
-        pygpen.init((1280, 720),
-                    spritesheet_path=level_editor_config['spritesheet_path'], 
+        pygpen.init(spritesheet_path=level_editor_config['spritesheet_path'], 
                     input_path='editor_assets/level_editor_keys.json',
-                    font_path=self.font_path)
-        
+                    font_path=self.font_path,
+                    flags=pygame.FULLSCREEN)
+
         self.display = pygame.Surface((640, 360))
         
         self.tilemap = pygpen.Tilemap(tile_size=tuple(level_editor_config['tile_size']))
@@ -121,7 +113,9 @@ class Game(pygpen.PygpenGame):
         self.menu_scroll = [0, 0, 0]
         self.selected_ss_index = 0
         self.current_tile = None
+        self.grid = True
         self.grid_mode = True
+        self.on_menu = False
         self.layer = 0
         self.custom_data = ''
         self.mpos = (0, 0)
@@ -146,7 +140,7 @@ class Game(pygpen.PygpenGame):
         
     @property
     def hovered_loc(self):
-        if self.grid_mode:
+        if self.grid:
             return (int((self.mpos[0] + self.camera[0]) // self.tile_size[0]), int((self.mpos[1] + self.camera[1]) // self.tile_size[1]))
         else:
             return (math.floor(self.mpos[0] + self.camera[0]), math.floor(self.mpos[1] + self.camera[1]))
@@ -178,7 +172,7 @@ class Game(pygpen.PygpenGame):
         
     def update(self):
         self.display.fill((0, 0, 0))
-        
+
         camera_movement = [0, 0]
         if not self.e['Input'].holding('lctrl'):
             if self.e['Input'].holding('camera_right'):
@@ -192,10 +186,12 @@ class Game(pygpen.PygpenGame):
         self.camera.move(camera_movement)
         self.camera.update()
         
-        mpos = (self.e['Mouse'].pos[0] // 2, self.e['Mouse'].pos[1] // 2)
+        mpos = (self.e['Mouse'].pos[0] * (640 / self.e['Window'].screen.get_width()), self.e['Mouse'].pos[1] * (360 / self.e['Window'].screen.get_height()))
         self.mpos = mpos
         hovering = 'world'
+        self.on_menu = False
         if mpos[0] < 70:
+            self.on_menu = True
             hovering = 'tile_select'
             if mpos[1] < 80:
                 hovering = 'ss_select'
@@ -220,8 +216,8 @@ class Game(pygpen.PygpenGame):
             blit[0].set_alpha(255)
         offset = (self.camera.pos[0] % self.tile_size[0], self.camera.pos[1] % self.tile_size[1])
         grid_surf = pygame.Surface(self.display.get_size(), pygame.SRCALPHA)
-        pygame.draw.line(grid_surf, (0, 255, 255), (-self.camera[0], 0), (-self.camera[0], self.display.get_height()), 3)
-        pygame.draw.line(grid_surf, (0, 255, 255), (0, -self.camera[1]), (self.display.get_width(), -self.camera[1]), 3)
+        pygame.draw.line(grid_surf, (255, 255, 255), (-self.camera[0], 0), (-self.camera[0], self.display.get_height()), 3)
+        pygame.draw.line(grid_surf, (255, 255, 255), (0, -self.camera[1]), (self.display.get_width(), -self.camera[1]), 3)
         pygame.draw.line(grid_surf, (255, 255, 0), (self.tilemap.dimensions[0] * self.tilemap.tile_size[0] - self.camera[0], max(0, -self.camera[1])), (self.tilemap.dimensions[0] * self.tilemap.tile_size[0] - self.camera[0], min(self.display.get_height(), self.tilemap.dimensions[1] * self.tilemap.tile_size[1] - self.camera[1])), 3)
         pygame.draw.line(grid_surf, (255, 255, 0), (max(0, -self.camera[0]), self.tilemap.dimensions[1] * self.tilemap.tile_size[1] - self.camera[1]), (min(self.display.get_width(), self.tilemap.dimensions[0] * self.tilemap.tile_size[0] - self.camera[0]), self.tilemap.dimensions[1] * self.tilemap.tile_size[1] - self.camera[1]), 3)
         for x in range(self.display.get_width() // self.tile_size[0] + 1):
@@ -241,7 +237,7 @@ class Game(pygpen.PygpenGame):
             self.e['Renderer'].renderf(pygame.draw.rect, (255, 0, 255), rect, 1, z=999997)
         
         menu_surf = pygame.Surface((70, self.display.get_height()), pygame.SRCALPHA)
-        menu_surf.fill((0, 40, 60, 180))
+        menu_surf.fill((40, 40, 40, 180))
         if len(self.thumb_keys):
             for i in range(4):
                 lookup_i = (self.menu_scroll[0] + i) % len(self.thumb_keys)
@@ -262,14 +258,14 @@ class Game(pygpen.PygpenGame):
                         if self.e['Input'].pressed('place'):
                             self.current_tile = (self.thumb_keys[self.selected_ss_index], tile_loc)
                     menu_surf.blit(pygame.transform.scale(tile, (16, 16)), (3 + (tile_loc[0] - self.menu_scroll[1]) * 18, 83 + (tile_loc[1] - self.menu_scroll[2]) * 18))
-        pygame.draw.line(menu_surf, (0, 80, 120), (menu_surf.get_width() - 1, 0), (menu_surf.get_width() - 1, menu_surf.get_height() - 1))
-        pygame.draw.line(menu_surf, (0, 80, 120), (0, 80), (70, 80))
+        pygame.draw.line(menu_surf, (120, 120, 120), (menu_surf.get_width() - 1, 0), (menu_surf.get_width() - 1, menu_surf.get_height() - 1))
+        pygame.draw.line(menu_surf, (120, 120, 120), (0, 80), (70, 80))
         self.e['Renderer'].blit(menu_surf, (0, 0), z=999998)
         
         if self.current_tile:
             tile_img = self.e['Assets'].spritesheets[self.current_tile[0]]['assets'][self.current_tile[1]].copy()
             tile_img.set_alpha(128)
-            if self.grid_mode:
+            if self.grid:
                 pos = (self.hovered_loc[0] * self.tile_size[0] - self.camera[0], self.hovered_loc[1] * self.tile_size[1] - self.camera[1])
                 self.e['Renderer'].renderf(pygame.draw.rect, (255, 255, 255), pygame.Rect(*pos, *self.tile_size), 1, z=999998)
                 self.e['Renderer'].blit(tile_img, pos, z=999998)
@@ -350,10 +346,15 @@ class Game(pygpen.PygpenGame):
                 self.dimension_selector.pos = [self.tile_size[0] * self.tilemap.dimensions[0], self.tile_size[1] * self.tilemap.dimensions[1]]
                 self.dimension_selector.snap = tuple(self.tile_size)
         
+        if self.on_menu:
+            self.grid = False
+        else:
+            self.grid = self.grid_mode
+        
         if self.current_tile and not self.dimension_selector.dragging:
             if hovering == 'world':
                 next_tile = pygpen.Tile(*self.current_tile, self.hovered_loc, layer=self.layer, custom_data=self.custom_data)
-                if self.grid_mode:
+                if self.grid:
                     if self.e['Input'].holding('place'):
                         self.tilemap.insert(next_tile)
                     if self.e['Input'].pressed('floodfill'):

@@ -1,5 +1,6 @@
 import os
 import json
+import pygame
 
 def read_f(path):
     f = open(path, 'r')
@@ -97,3 +98,16 @@ def recursive_file_op(path, func, filetype=None):
                 data_ref[asset.split('.')[0]] = func(f[0] + '/' + asset)
 
     return data
+
+def load_music_from_folder(path):
+    pygame.mixer.init()
+    valid_extensions = {'mp3', 'wav', 'ogg', 'flac'}
+    music_files = []
+    
+    for root, _, files in os.walk(path):
+        for file in files:
+            if file.split('.')[-1].lower() in valid_extensions:
+                full_path = os.path.join(root, file)
+                music_files.append(pygame.mixer.Sound(full_path))
+    
+    return music_files

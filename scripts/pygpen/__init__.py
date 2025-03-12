@@ -20,9 +20,9 @@ from .ui.text import Text
 from .ui.textbox import Textbox
 
 def init(dimensions=(640, 480), caption='pygpen window', entity_path=None,
-         sounds_path=None, spritesheet_path=None, input_path=None,
-         font_path=None, flags=0, fps_cap=60, dt_cap=1,
-         opengl=False, frag_path=None):
+        sounds_path=None, spritesheet_path=None, input_path=None,
+        font_path=None, flags=0, fps_cap=60, dt_cap=1,
+        opengl=False, frag_path=None):
     window = Window(dimensions=dimensions, caption=caption, flags=flags, fps_cap=fps_cap, dt_cap=dt_cap, opengl=opengl, frag_path=frag_path)
     entity_groups = EntityGroups()
     entity_db = EntityDB(path=entity_path)
