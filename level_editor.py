@@ -1,8 +1,7 @@
 import os
 import sys
-import time
 import math
-import random
+import copy
 
 import pygame
 from pygame.locals import *
@@ -16,37 +15,7 @@ except ImportError:
     import scripts.pygpen as pygpen
     from scripts.pygpen.utils.io import read_json, write_json
 
-KEY_MAPPINGS = {
-	'quit': ['button', 27],
-    'camera_up': ['button', 119],
-    'camera_left': ['button', 97],
-    'camera_down': ['button', 115],
-    'camera_right': ['button', 100],
-    'select': ['button', 101],
-    'floodfill': ['button', 102],
-    'load': ['button', 105],
-    'save': ['button', 111],
-    'grid_toggle': ['button', 103],
-    'layer_toggle': ['button', 108],
-    'autotile': ['button', 116],
-    'lctrl': ['button', 1073742048],
-    'place': ['mouse', 1],
-    'remove': ['mouse', 3],
-    'layer_up': ['mouse', 4],
-    'layer_down': ['mouse', 5],
-    'custom_data': ['button', 99],
-    'deselect': ['button', 97],
-    'optimize': ['button', 121],
-}
-
-if not os.path.exists('editor_assets'):
-    os.mkdir('editor_assets')
-if not os.path.exists('editor_assets/level_editor_keys.json'):
-    write_json('editor_assets/level_editor_keys.json', KEY_MAPPINGS)
-if not os.path.exists('editor_assets/level_editor_config.json'):
-    write_json('editor_assets/level_editor_config.json', {'tile_size': [16, 16], 'spritesheet_path': None})
 level_editor_config = read_json('editor_assets/level_editor_config.json')
-
 class Draggable(pygpen.Element):
     def __init__(self, pos, radius=10, snap=(8, 8)):
         super().__init__()
@@ -127,6 +96,10 @@ class Game(pygpen.PygpenGame):
                         'total': 0, 'visible': 0, 'grid': 0, 'offgrid': 0, 'vlc': tuple(), 'custom': self.custom_data}
         self.metrics_order = ['tile', 'pos', 'layer', 'map', 'total', 'visible', 'grid', 'offgrid', 'vlc', 'custom']
         self.textbox = pygpen.Textbox('small_font', 200, return_event=lambda buffer: self.set_custom_data(buffer.text))
+        
+        self.history_shalk = []
+        self.history = []
+        self.max_history_size = 50 
     
     def set_custom_data(self, data):
         self.custom_data = data
@@ -154,6 +127,30 @@ class Game(pygpen.PygpenGame):
         if self.selection[1]:
             return pygpen.game_math.rectify(self.selection[0], self.selection[1])
         
+    def save_state_shalk(self):
+        if len(self.history_shalk) >= self.max_history_size:
+            self.history_shalk.pop(0)
+        self.history_shalk.append({
+            'tiles': self.tilemap.get_tiles(),  
+            'dimensions': self.tilemap.dimensions,
+            'tile_size': self.tilemap.tile_size,
+        })
+        
+    def save_state(self):
+        self.history.append(self.history_shalk[len(self.history_shalk)-1])
+        self.history_shalk.pop(len(self.history_shalk)-1)
+
+    def undo(self):
+
+        if self.history:
+            state = self.history[len(self.history)-1]
+            
+            self.tilemap.replace_tiles(state['tiles'])
+            self.tilemap.dimensions = state['dimensions']
+            self.tilemap.tile_size = state['tile_size']
+            
+            self.history.pop(len(self.history)-1)
+            
     def generate_spritesheet_thumb(self, spritesheet):
         thumb_surf = pygame.Surface((64, 16), pygame.SRCALPHA)
         i = 0
@@ -312,31 +309,42 @@ class Game(pygpen.PygpenGame):
             elif hovering == 'world':
                 self.layer -= 1
         
+        # CUSTOM DATA
         if self.e['Input'].pressed('custom_data'):
             self.textbox.bind()
+            
+        # CHANGE GRID MODE
         if self.e['Input'].pressed('grid_toggle'):
             self.grid_mode = not self.grid_mode
+        
+        # CHANGE LAYER MODE
         if self.e['Input'].pressed('layer_toggle'):
             self.layer_opacity = not self.layer_opacity
+        
+        # SELECT
         if self.e['Input'].pressed('select'):
             if not self.selection[0]:
                 self.selection[0] = self.offgrid_hovered_loc
             elif not self.selection[1]:
                 self.selection[1] = self.offgrid_hovered_loc
-        if self.e['Input'].holding('lctrl'):
-            if self.e['Input'].pressed('deselect'):
+            else:
                 self.selection = [None, None]
-            if self.e['Input'].pressed('delete'):
-                if self.selection_rect:
-                    self.tilemap.rect_delete(self.selection_rect, layer=self.layer)
-            if self.e['Input'].pressed('autotile'):
-                if self.selection_rect:
-                    self.tilemap.autotile(layer=self.layer, rect=self.selection_rect)
-            if self.e['Input'].pressed('optimize'):
-                if self.selection_rect:
-                    self.tilemap.optimize_area(layer=self.layer, rect=self.selection_rect)
-        if self.e['Input'].pressed('save'):
-            self.tilemap.save('save.pmap')
+    
+        if self.e['Input'].pressed('delete'):
+            print(1)
+            if self.selection_rect:
+                self.tilemap.rect_delete(self.selection_rect, layer=self.layer)
+                
+        # LEFT CTRL MODE
+        if self.e['Input'].holding('lctrl'):
+            if self.e['Input'].pressed('save'):
+                self.tilemap.save('save.pmap')
+            
+            if self.e['Input'].holding('lctrl'):
+                if self.e['Input'].pressed('undo'):
+                    self.undo()
+        
+        # LOAD MAP
         if self.e['Input'].pressed('load'):
             root = Tk()
             root.withdraw()
@@ -346,6 +354,7 @@ class Game(pygpen.PygpenGame):
                 self.dimension_selector.pos = [self.tile_size[0] * self.tilemap.dimensions[0], self.tile_size[1] * self.tilemap.dimensions[1]]
                 self.dimension_selector.snap = tuple(self.tile_size)
         
+        # CHEK MENU
         if self.on_menu:
             self.grid = False
         else:
@@ -355,17 +364,31 @@ class Game(pygpen.PygpenGame):
             if hovering == 'world':
                 next_tile = pygpen.Tile(*self.current_tile, self.hovered_loc, layer=self.layer, custom_data=self.custom_data)
                 if self.grid:
+                    if self.e['Input'].pressed('place'):
+                        self.save_state_shalk()
+                    
                     if self.e['Input'].holding('place'):
                         self.tilemap.insert(next_tile)
+                        
                     if self.e['Input'].pressed('floodfill'):
+                        self.save_state_shalk()
                         self.tilemap.floodfill(next_tile)
+                        
                 else:
                     if self.e['Input'].pressed('place'):
+                        self.save_state_shalk()
                         self.tilemap.insert(next_tile, ongrid=False)
+                        
+                if self.e['Input'].pressed('remove'):
+                    self.save_state_shalk()
+                        
                 if self.e['Input'].holding('remove'):
                     self.tilemap.rect_delete(pygame.Rect(*self.offgrid_hovered_loc, 2, 2), layer=self.layer)
+                
+                if self.e['Input'].released('place') or self.e['Input'].released('floodfill') or self.e['Input'].released('remove'):
+                    self.save_state()
         
         self.e['Window'].screen.blit(pygame.transform.scale(self.display, self.e['Window'].screen.get_size()), (0, 0))
         self.e['Window'].cycle()
         
-Game().run()
+Game().run() 

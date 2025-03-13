@@ -1,4 +1,4 @@
-import pygame
+import pygame, copy
 
 from ..utils.elements import Element
 from ..utils.io import read_tjson, write_tjson
@@ -97,6 +97,28 @@ class Tilemap(Element):
     def in_map(self, gridpos):
         dimensions_r = pygame.Rect(0, 0, *self.dimensions)
         return dimensions_r.collidepoint(gridpos)
+
+    def get_tiles(self, include_grid=True, include_offgrid=True):
+
+        tiles = []
+        
+        if include_grid:
+            for loc in self.grid_tiles:
+                for layer in self.grid_tiles[loc]:
+                    tiles.append(self.grid_tiles[loc][layer])
+        
+        if include_offgrid:
+            for tile in self.offgrid_tiles.objects.values():
+                tiles.append(tile)
+        
+        return tiles
+    
+    def replace_tiles(self, new_tiles, ongrid=True):
+
+        self.reset()
+
+        for tile in new_tiles:
+            self.insert(tile, ongrid=ongrid)
 
     def inject(self, tilemap, offset=(0, 0), spawn_hook=lambda tile_data, ongrid: True):
         for loc in tilemap.grid_tiles:
@@ -343,6 +365,15 @@ class Tilemap(Element):
             for tile in layers[layer]:
                 tile_types.add(tile.group)
         return tile_types
+
+    # def copy_tilemap(self, layers=None):
+
+    #     new_tilemap = Tilemap(tile_size=self.tile_size)
+    #     new_tilemap.dimensions = self.dimensions
+    #     if layers:
+    #         new_tilemap.layers = copy.deepcopy(layers)
+
+    #     return new_tilemap
 
     def render_prep(self, rect, offset=(0, 0), group='default'):
         topleft = (rect.x // self.tile_size[0], rect.y // self.tile_size[1])
